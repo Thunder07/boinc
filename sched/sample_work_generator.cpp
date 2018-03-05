@@ -183,8 +183,12 @@ int make_job() {
 
 
     std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
-    std::string mask = prefix;
     std::string skiplimit = "-l " + std::to_string(LIMIT) + " -s ";
+
+    std::string mask = prefix;
+    for(int i = 0; i < mask_count -1; ++i)
+        mask +="?1";
+
     for(; mask_count < 11; ++mask_count)
     {
         mask +="?1";
