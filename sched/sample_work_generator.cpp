@@ -163,6 +163,8 @@ int make_job() {
                 else
                 {
                     //We're ALL done folks
+                    exit(0);
+                    return -1;
                 }
             }
             else
@@ -178,72 +180,50 @@ int make_job() {
 
         printf("%s %d %d\n",name_split[1].c_str(), x, i);
     }
-    exit(0);
+
+
+    std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
+    std::string mask = prefix;
+    std::string skiplimit = "-l " + std::to_string(LIMIT) + " -s ";
+    for(; x < 11; ++x)
     {
-        std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
-        std::string mask = prefix + "?1?1?1?1?1?1?1";
-        std::string skiplimit = "-l " + std::to_string(LIMIT) + " -s ";
-        for(; x < 11; ++x)
+        mask +="?1";
+        std::string jobname = app_name;
+        jobname += "_" + prefix;
+        jobname += "_" + std::to_string(x);
+        int max = floor(pow(62, x)/LIMIT);
+        for(; i < max+1; ++i)
         {
-            std::string jobname = app_name;
-            jobname += "_" + prefix;
-            jobname += "_" + std::to_string(x);
-            int max = floor(pow(62, x)/LIMIT);
-            for(; i < max+1; ++i)
-            {
-                auto append_jobname = jobname;
-                append_jobname += "_" + std::to_string(i);
-                append_jobname += "_" + std::to_string(max);
-                safe_strcpy(wu.name, append_jobname.c_str());
-                infiles[0] = append_jobname.c_str();
-                int skip = i*LIMIT;
-                std::string tmpcmd = cmdline;
-                tmpcmd += mask + " " + skiplimit + std::to_string(skip) + " ";
-                tmpcmd += "--status --status-timer 10 ";
+            auto append_jobname = jobname;
+            append_jobname += "_" + std::to_string(i);
+            append_jobname += "_" + std::to_string(max);
+            safe_strcpy(wu.name, append_jobname.c_str());
+            infiles[0] = append_jobname.c_str();
+            int skip = i*LIMIT;
+            std::string tmpcmd = cmdline;
+            tmpcmd += mask + " " + skiplimit + std::to_string(skip) + " ";
+            tmpcmd += "--status --status-timer 10 ";
 
-                    char input_path[MAXPATHLEN];
+            char input_path[MAXPATHLEN];
 
-                    retval = config.download_path(infiles[0], input_path);
-                    if (retval) return retval;
-                    FILE* f = fopen(input_path, "w");
-                    if (!f) return ERR_FOPEN;
-                    fprintf(f, "job ID: %s", infiles[0]);
-                    fclose(f);
-                create_work(
-                    wu,
-                    in_template,
-                    path,
-                    config.project_path(path),
-                    infiles,
-                    1,
-                    config,
-                    tmpcmd.c_str()
-                );
-                exit(0);
-            }
-            mask +="?1";
+            retval = config.download_path(infiles[0], input_path);
+            if (retval) return retval;
+            FILE* f = fopen(input_path, "w");
+            if (!f) return ERR_FOPEN;
+            fprintf(f, "job ID: %s", infiles[0]);
+            fclose(f);
+            return create_work(
+                wu,
+                in_template,
+                path,
+                config.project_path(path),
+                infiles,
+                1,
+                config,
+                cmdline.c_str()
+            );
         }
     }
-    // MIN ?1?1?1?1?1?1?1; x7
-    // MAX ?1?1?1?1?1?1?1?1?1?1; x10
-    // TODO check DB for unfinished/expired work
-    // if none create new
-    std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
-    cmdline += "sce?1?1?1?1?1?1?1 ";//mask
-    cmdline += "-l 10000000000 -s 0 ";//limitskip 10000000000
-    cmdline += "--status --status-timer 10 ";//autostats
-    //printf(in_template2);
-    //exit(0);
-    return create_work(
-        wu,
-        in_template,
-        path,
-        config.project_path(path),
-        infiles,
-        1,
-        config,
-        cmdline.c_str()
-    );
 }
 
 void main_loop() {
