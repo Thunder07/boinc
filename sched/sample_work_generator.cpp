@@ -137,23 +137,24 @@ int make_job() {
     sprintf(path, "templates/%s", out_template_file);
     
     DB_WORKUNIT wu_ret;
-    int x = 7;
-    int i = 0;
+    int mask_count = 7;
+    int skip_count = 0;
     std::string prefix = "sce";
+    //might need to add the 1st task manually? or add handing logic
     if(wu_ret.enumerate(" order by id DESC limit 1 "))
     {
         std::vector<std::string> name_split{explode(wu_ret.name, '_')};
         prefix = name_split[1];
-        x = std::stoi(name_split[2]);
-        i = std::stoi(name_split[3]);
+        mask_count = std::stoi(name_split[2]);
+        skip_count = std::stoi(name_split[3]);
         printf("%s\n", wu_ret.name);
         printf("%s %s %s\n",name_split[1].c_str(), name_split[2].c_str(), name_split[3].c_str());
-        int max = floor(pow(62, x)/LIMIT);
-        if(i >= max)
+        int max_skip = floor(pow(62, mask_count)/LIMIT);
+        if(skip_count >= max_skip)
         {
-            if(x >= 10)
+            if(mask_count >= 10)
             {
-                x = 0;
+                mask_count = 0;
                 auto it = std::find(prefixes.begin(), prefixes.end(), prefix);
                 if(it != prefixes.end() && it+1 != prefixes.end())
                 {
@@ -169,37 +170,36 @@ int make_job() {
             }
             else
             {
-                ++x;
+                ++mask_count;
             }
-            i = 0;
+            skip_count = 0;
         }
-        else if(i < max)
+        else if(skip_count < max_skip)
         {
-            ++i;
+            ++skip_count;
         }
-
-        printf("%s %d %d\n",name_split[1].c_str(), x, i);
+        printf("%s %d %d\n",name_split[1].c_str(), mask_count, skip_count);
     }
 
 
     std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
     std::string mask = prefix;
     std::string skiplimit = "-l " + std::to_string(LIMIT) + " -s ";
-    for(; x < 11; ++x)
+    for(; mask_count < 11; ++mask_count)
     {
         mask +="?1";
         std::string jobname = app_name;
         jobname += "_" + prefix;
-        jobname += "_" + std::to_string(x);
-        int max = floor(pow(62, x)/LIMIT);
-        for(; i < max+1; ++i)
+        jobname += "_" + std::to_string(mask_count);
+        int max_skip = floor(pow(62, mask_count)/LIMIT);
+        for(; skip_count < max_skip+1; ++skip_count)
         {
             auto append_jobname = jobname;
-            append_jobname += "_" + std::to_string(i);
-            append_jobname += "_" + std::to_string(max);
+            append_jobname += "_" + std::to_string(skip_count);
+            append_jobname += "_" + std::to_string(max_skip);
             safe_strcpy(wu.name, append_jobname.c_str());
             infiles[0] = append_jobname.c_str();
-            int skip = i*LIMIT;
+            int skip = skip_count*LIMIT;
             std::string tmpcmd = cmdline;
             tmpcmd += mask + " " + skiplimit + std::to_string(skip) + " ";
             tmpcmd += "--status --status-timer 10 ";
