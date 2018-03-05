@@ -39,6 +39,10 @@
 #include <cstdlib>
 #include <string>
 #include <cstring>
+#include <cmath>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
 
 #include "backend_lib.h"
 #include "boinc_db.h"
@@ -54,23 +58,53 @@
 #include "sched_util.h"
 #include "sched_msgs.h"
 
-#define CUSHION 10
+#define CUSHION 6
     // maintain at least this many unsent results
-#define REPLICATION_FACTOR  1
+#define REPLICATION_FACTOR  2
     // number of instances of each job
 
-const char* app_name = "example_app";
-const char* in_template_file = "example_app_in";
-const char* out_template_file = "example_app_out";
+const char* app_name = "PS4Hashcat";
+const char* in_template_file = "job_in.xml";
+const char* out_template_file = "job_out.xml";
 
 char* in_template;
 DB_APP app;
 int start_time;
 int seqno;
 
+std::vector<std::string> prefixes;
+
+void loadprefixes()
+{
+    prefixes.clear();
+    auto path = config.project_path("prefixes.txt");
+    printf(path);
+    std::ifstream infile(path);
+    for(std::string line; getline(infile, line);)
+    {
+        prefixes.push_back(line);
+    }
+}
+
+const std::vector<std::string> explode(const std::string& s, const char& c)
+{
+	std::string buff{""};
+	std::vector<std::string> v;
+	
+	for(auto n:s)
+	{
+		if(n != c) buff+=n; else
+		if(n == c && buff != "") { v.push_back(buff); buff = ""; }
+	}
+	if(buff != "") v.push_back(buff);
+	
+	return v;
+}
+
 // create one new job
 //
 int make_job() {
+    loadprefixes();
     DB_WORKUNIT wu;
     char name[256], path[MAXPATHLEN];
     const char* infiles[1];
@@ -83,18 +117,10 @@ int make_job() {
     // Create the input file.
     // Put it at the right place in the download dir hierarchy
     //
-    retval = config.download_path(name, path);
-    if (retval) return retval;
-    FILE* f = fopen(path, "w");
-    if (!f) return ERR_FOPEN;
-    fprintf(f, "This is the input file for job %s", name);
-    fclose(f);
 
     // Fill in the job parameters
-    //
     wu.clear();
     wu.appid = app.id;
-    safe_strcpy(wu.name, name);
     wu.rsc_fpops_est = 1e12;
     wu.rsc_fpops_bound = 1e14;
     wu.rsc_memory_bound = 1e8;
@@ -105,11 +131,109 @@ int make_job() {
     wu.max_error_results = REPLICATION_FACTOR*4;
     wu.max_total_results = REPLICATION_FACTOR*8;
     wu.max_success_results = REPLICATION_FACTOR*4;
-    infiles[0] = name;
 
     // Register the job with BOINC
-    //
+    #define LIMIT 100000000000
     sprintf(path, "templates/%s", out_template_file);
+    
+    DB_WORKUNIT wu_ret;
+    int x = 7;
+    int i = 0;
+    std::string prefix = "sce";
+    if(wu_ret.enumerate(" order by id DESC limit 1 "))
+    {
+        std::vector<std::string> name_split{explode(wu_ret.name, '_')};
+        prefix = name_split[1];
+        x = std::stoi(name_split[2]);
+        i = std::stoi(name_split[3]);
+        printf("%s\n", wu_ret.name);
+        printf("%s %s %s\n",name_split[1].c_str(), name_split[2].c_str(), name_split[3].c_str());
+        int max = floor(pow(62, x)/LIMIT);
+        if(i >= max)
+        {
+            if(x >= 10)
+            {
+                x = 0;
+                auto it = std::find(prefixes.begin(), prefixes.end(), prefix);
+                if(it != prefixes.end() && it+1 != prefixes.end())
+                {
+                    ++it;
+                    prefix = *it;
+                }
+                else
+                {
+                    //We're ALL done folks
+                }
+            }
+            else
+            {
+                ++x;
+            }
+            i = 0;
+        }
+        else if(i < max)
+        {
+            ++i;
+        }
+
+        printf("%s %d %d\n",name_split[1].c_str(), x, i);
+    }
+    exit(0);
+    {
+        std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
+        std::string mask = prefix + "?1?1?1?1?1?1?1";
+        std::string skiplimit = "-l " + std::to_string(LIMIT) + " -s ";
+        for(; x < 11; ++x)
+        {
+            std::string jobname = app_name;
+            jobname += "_" + prefix;
+            jobname += "_" + std::to_string(x);
+            int max = floor(pow(62, x)/LIMIT);
+            for(; i < max+1; ++i)
+            {
+                auto append_jobname = jobname;
+                append_jobname += "_" + std::to_string(i);
+                append_jobname += "_" + std::to_string(max);
+                safe_strcpy(wu.name, append_jobname.c_str());
+                infiles[0] = append_jobname.c_str();
+                int skip = i*LIMIT;
+                std::string tmpcmd = cmdline;
+                tmpcmd += mask + " " + skiplimit + std::to_string(skip) + " ";
+                tmpcmd += "--status --status-timer 10 ";
+
+                    char input_path[MAXPATHLEN];
+
+                    retval = config.download_path(infiles[0], input_path);
+                    if (retval) return retval;
+                    FILE* f = fopen(input_path, "w");
+                    if (!f) return ERR_FOPEN;
+                    fprintf(f, "job ID: %s", infiles[0]);
+                    fclose(f);
+                create_work(
+                    wu,
+                    in_template,
+                    path,
+                    config.project_path(path),
+                    infiles,
+                    1,
+                    config,
+                    tmpcmd.c_str()
+                );
+                exit(0);
+            }
+            mask +="?1";
+        }
+    }
+    // MIN ?1?1?1?1?1?1?1; x7
+    // MAX ?1?1?1?1?1?1?1?1?1?1; x10
+    // TODO check DB for unfinished/expired work
+    // if none create new
+    std::string cmdline = "--potfile-path=hashcat.potfile -w 3 --session session_ps4 -1 ?u?l?d -m 16111 -a 3 ps4nid.txt ";
+    cmdline += "sce?1?1?1?1?1?1?1 ";//mask
+    cmdline += "-l 10000000000 -s 0 ";//limitskip 10000000000
+    cmdline += "--status --status-timer 10 ";//autostats
+    //printf(in_template2);
+    //exit(0);
     return create_work(
         wu,
         in_template,
@@ -117,7 +241,8 @@ int make_job() {
         config.project_path(path),
         infiles,
         1,
-        config
+        config,
+        cmdline.c_str()
     );
 }
 
@@ -242,6 +367,17 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    if(false)
+    {
+        DB_WORKUNIT workunit;
+
+        while (!workunit.enumerate(" order by id DESC limit 1 "))
+        {
+            printf("workunit %d wsn %s\n", workunit.id, workunit.name);
+        }
+        return 0;
+    }
+    
     snprintf(buf, sizeof(buf), "where name='%s'", app_name);
     if (app.lookup(buf)) {
         log_messages.printf(MSG_CRITICAL, "can't find app %s\n", app_name);

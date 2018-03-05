@@ -22,6 +22,10 @@
 #include <vector>
 #include <string>
 #include <cstdlib>
+#include <algorithm> 
+#include <cctype>
+#include <locale>
+#include <fstream>
 
 #include "boinc_db.h"
 #include "error_numbers.h"
@@ -35,6 +39,37 @@ using std::vector;
 using std::string;
 
 const char* outdir = "sample_results";
+
+static inline void ltrim(std::string &s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
+        return !std::isspace(ch);
+    }));
+}
+
+// trim from end (in place)
+static inline void rtrim(std::string &s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch) {
+        return !std::isspace(ch);
+    }).base(), s.end());
+}
+
+// trim from both ends (in place)
+static inline void trim(std::string &s) {
+    ltrim(s);
+    rtrim(s);
+}
+
+// trim from start (copying)
+static inline std::string ltrim_copy(std::string s) {
+    ltrim(s);
+    return s;
+}
+
+// trim from end (copying)
+static inline std::string rtrim_copy(std::string s) {
+    rtrim(s);
+    return s;
+}
 
 int write_error(char* p) {
     static FILE* f = 0;
@@ -78,33 +113,41 @@ int assimilate_handler(
     retval = boinc_mkdir(config.project_path(outdir));
     if (retval) return retval;
 
-    if (wu.canonical_resultid) {
+    if (wu.canonical_resultid)
+    {
         vector<OUTPUT_FILE_INFO> output_files;
         const char *copy_path;
         get_output_file_infos(canonical_result, output_files);
         unsigned int n = output_files.size();
         bool file_copied = false;
-        for (i=0; i<n; i++) {
+        for(i=0; i<n; i++)
+        {
             OUTPUT_FILE_INFO& fi = output_files[i];
-            if (n==1) {
-                sprintf(buf, "%s/%s", outdir, wu.name);
-            } else {
-                sprintf(buf, "%s/%s_%d", outdir, wu.name, i);
-            }
+
+            std::ifstream t(fi.path.c_str());
+            std::string hashes((std::istreambuf_iterator<char>(t)),
+                 std::istreambuf_iterator<char>());
+
+            if(hashes.empty())
+                return 0;
+            
+            trim(hashes);
+
+
+            sprintf(buf, "%s/hashpot", outdir);
             copy_path = config.project_path(buf);
-            retval = boinc_copy(fi.path.c_str() , copy_path);
-            if (!retval) {
-                file_copied = true;
-            }
+
+            std::ofstream outfile;
+            outfile.open(copy_path, std::ios_base::app);
+            if(!outfile.is_open())
+                return -1;
+
+            outfile << hashes.c_str() << std::endl; 
+            outfile.close();
         }
-        if (!file_copied) {
-            sprintf(buf, "%s/%s_no_output_files", outdir, wu.name);
-            copy_path = config.project_path(buf);
-            FILE* f = fopen(copy_path, "w");
-            if (!f) return ERR_FOPEN;
-            fclose(f);
-        }
-    } else {
+    }
+    else
+    {
         sprintf(buf, "%s: 0x%x\n", wu.name, wu.error_mask);
         return write_error(buf);
     }

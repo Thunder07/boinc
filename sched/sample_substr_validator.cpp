@@ -23,61 +23,57 @@
 // (default: accept it if the string is present)
 
 #include <vector>
+#include <sstream>
+#include <string>
+#include <fstream>
 
 #include "sched_msgs.h"
 #include "sched_util_basic.h"
+#include "validate_util.h"
 #include "validate_util2.h"
 #include "validator.h"
+#include "md5_file.h"
 
 using std::vector;
 
-vector<char*> stderr_strings;
-bool reject_if_present = false;
 
-int validate_handler_init(int argc, char** argv) {
-    // handle project specific arguments here
-    bool found = false;
-    for (int i=1; i<argc; i++) {
-        if (is_arg(argv[i], "stderr_string")) {
-            stderr_strings.push_back(argv[++i]);
-            found = true;
-        } else if (is_arg(argv[i], "reject_if_present")) {
-            reject_if_present = true;
-        }
-    }
-
-    if (!found) {
-        log_messages.printf(MSG_CRITICAL,
-            "--stderr_string missing from command line\n"
-        );
-        return 1;
-    }
+int validate_handler_init(int argc, char** argv)
+{
     return 0;
 }
 
 void validate_handler_usage() {
-    // describe the project specific arguments here
-    fprintf(stderr,
-        "    Custom options:\n"
-        "    --stderr_string X     accept task if X is present in stderr_out\n"
-        "    [--reject_if_present] reject (invalidate) the task if X is present\n"
-    );
 }
 
-int init_result(RESULT& r, void*&) {
-    for(unsigned int i=0; i<stderr_strings.size(); i++) {
-        char* stderr_string = stderr_strings[i];
-        if (strstr(r.stderr_out, stderr_string)) {
-            if (reject_if_present) return -1;
-        } else {
-            if (!reject_if_present) return -1;
-        }
-    }
+int init_result(RESULT& result, void*& output_data)
+{
+    if(result.name == NULL)
+        return -1;
+    
+    std::string* output = new std::string("");
+    OUTPUT_FILE_INFO fi;
+    get_output_file_info(result, fi);
+
+    char md5_buf[MD5_LEN];
+    double nbytes;
+
+    int retval = md5_file(fi.path.c_str(), md5_buf, nbytes, false);
+    output->append(md5_buf);
+
+    output_data = (void*) output;
     return 0;
 }
 
-int compare_results(RESULT&, void*, RESULT const&, void*, bool& match) {
-    match = true;
+int compare_results(RESULT& res, void*data1, RESULT const& res2, void*data2, bool& match)
+{
+    std::string* md5[2] = {
+        static_cast<std::string*>(data1),
+        static_cast<std::string*>(data2),
+    };
+
+    int retval = md5[0]->compare(*md5[1]);
+    match = (retval == 0);
+
     return 0;
 }
 
